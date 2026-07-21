@@ -1,0 +1,20 @@
+
+
+# HTTP requests
+requests==2.32.3
+
+# XML parsing
+beautifulsoup4==4.12.3
+lxml==5.3.0
+
+# Data manipulation
+pandas==2.2.3
+
+# Database
+psycopg2-binary==2.9.10
+
+# Data quality
+great-expectations==0.18.21
+
+# Utilities
+python-dotenv==1.0.1
