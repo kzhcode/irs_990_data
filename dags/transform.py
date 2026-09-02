@@ -72,7 +72,32 @@ def dir_setup_edited():
         print(f"Created {EDITED_IRS_990_DIR} directory")
 
 
-# 2. Creating a function to process EO BMF files for KS and MO
+# 2. Creating a function to extract IRS 990 XML files from zipped files
+def unzipping_990_files():
+    '''
+    Action: Accessing compressed IRS 990 files at ORIGINAL_990_FILES directory and unzipping them into EDITED_990_FILES directory.
+    
+    Description: This function takes compressed IRS 990 files and extracts them into another directory. Originally, these XML files
+    were going to be accessed directly within compressed files. However, there are issues with compression that IRS enforces on these
+    files. Additionally, further exploration showed that compressed files have a compression type of 0, which isnt useful for processing.
+    '''
+
+    # traversing directory with zipped 990 files
+    for i_member in os.scandir(IRS_990_DIR):
+        print(f"Opened zipped file {i_member.name.upper()}")
+
+        # per each zip file in a folder creating ZipFile object
+        i_zip = zipfile.ZipFile(i_member, mode="r")
+
+        # creating a zip file Path object
+        i_zip_path = zipfile.Path(i_member)
+
+        # extracting all members
+        i_zip.extractall(os.path.join(EDITED_IRS_990_DIR, i_zip_path.stem))
+        print(f"Extracted members out of zipped {i_member.name.upper()}")
+
+
+# 3. Creating a function to process EO BMF files for KS and MO
 def transform_irs_eo_bmf():
     '''
     Action: This function transforms data specified in the eo_bmf_files directory and loads it into eo_bmf_files_edited directory.
@@ -114,7 +139,7 @@ def transform_irs_eo_bmf():
     return df_eo_bmf
 
 
-# 3. Creating a function to process IRS 990 index files
+# 4. Creating a function to process IRS 990 index files
 def transform_irs_index(eo_bmf_data):
     '''
     Action: This function takes the combined EO BMF data for KS and MO, extracts their EINs, and then filters files 
@@ -176,25 +201,10 @@ def transform_irs_index(eo_bmf_data):
     return df_index
 
 
-# 4. Creating a function to extract IRS 990 XML files from zipped files
-def unzipping_990_files():
-    '''
-    Action: Accessing compressed IRS 990 files at ORIGINAL_990_FILES directory and unzipping them into EDITED_990_FILES directory.
-    
-    Description: This function takes compressed IRS 990 files and extracts them into another directory. Originally, these XML files
-    were going to be accessed directly within compressed files. However, there are issues with compression that IRS enforces on these
-    files. Additionally, further exploration showed that compressed files have a compression type of 0, which isnt useful for processing.
-    '''
-
-    
-
-
-
-
-
 
 if __name__ == "__main__":
     dir_setup_edited()
+    unzipping_990_files()
     data_1 = transform_irs_eo_bmf()
     data_2 = transform_irs_index(data_1)
 
