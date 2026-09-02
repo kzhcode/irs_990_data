@@ -3,19 +3,39 @@
 import os
 import pandas
 import os.path
+import datetime
+import zipfile
 
 
-# 0. Setting file variables
-TEMP_TEST_DIR = "/home/kirill/Downloads/" # temp link since working outside of Docker for now
-DATA_DIR = "/opt/airflow/data"
+# 0.0 Setting working directory paths
+ROOT_DATA_DIR = "/opt/airflow/data"
 
-IRS_EO_BMF = os.path.join(DATA_DIR, "eo_bmf_files")
-IRS_EO_BMF_EDITED = os.path.join(DATA_DIR, "eo_bmf_files_edited")
+IRS_EO_BMF_DIR = os.path.join(ROOT_DATA_DIR, "ORIGINAL_EO_BMF_FILES")
+EDITED_IRS_EO_BMF_DIR = os.path.join(ROOT_DATA_DIR, "EDITED_EO_BMF_FILES")
 
-IRS_INDEX = os.path.join(DATA_DIR, "index_files")
-IRS_INDEX_EDITED = os.path.join(DATA_DIR, "index_files_edited")
+IRS_INDEX_DIR = os.path.join(ROOT_DATA_DIR, "ORIGINAL_INDEX_FILES")
+EDITED_IRS_INDEX_DIR = os.path.join(ROOT_DATA_DIR, "EDITED_INDEX_FILES")
 
-IRS_990 = os.path.join(DATA_DIR, "batch_files")
+IRS_990_DIR = os.path.join(ROOT_DATA_DIR, "ORIGINAL_990_FILES")
+EDITED_IRS_990_DIR = os.path.join(ROOT_DATA_DIR, "EDITED_990_FILES")
+
+
+# 0.1. Setting XML schema and variable paths within XML document
+NS = {"irs": "http://www.irs.gov/efile"}
+
+FIELD_XPATHS = {
+    "XML_EIN": "//irs:Filer/irs:EIN",  # renamed from "EIN" to avoid colliding with the index-sourced EIN
+    "BUSINESS_NAME": "//irs:BusinessName/irs:BusinessNameLine1Txt",
+    "ADDRESS_LINE": "//irs:USAddress/irs:AddressLine1Txt",
+    "CITY_NAME": "//irs:USAddress/irs:CityNm",
+    "STATE": "//irs:USAddress/irs:StateAbbreviationCd",
+    "ZIP": "//irs:USAddress/irs:ZIPCd",
+    "TOTAL_REVENUE": ".//irs:IRS990/irs:CYTotalRevenueAmt",
+    "TOTAL_EXPENSES": ".//irs:IRS990/irs:CYTotalExpensesAmt",
+    "TOTAL_ASSETS_EOY": ".//irs:IRS990/irs:TotalAssetsEOYAmt",
+    "TOTAL_LIABILITIES_EOY": ".//irs:IRS990/irs:TotalLiabilitiesEOYAmt",
+    "NET_ASSETS_EOY": ".//irs:IRS990/irs:NetAssetsOrFundBalancesEOYAmt",
+}
 
 
 # 1. Function to set up directories in a volume 
@@ -26,39 +46,41 @@ def dir_setup_edited():
     '''   
 
 
-    # Testing if eo_bmf_files_edited folder exists
-    if os.path.exists(os.path.join(DATA_DIR, "eo_bmf_files_edited")):
-        print("The eo_bmf_files_edited folder already exists, moving forward")
+    # Testing if edited_eo_bmf_files folder exists
+    if os.path.exists(EDITED_IRS_EO_BMF_DIR):
+        print(f"{EDITED_IRS_EO_BMF_DIR.upper()} directory already exists")
     else:
         # If the folder doesnt exists, creating one
-        os.mkdir(os.path.join(DATA_DIR, "eo_bmf_files_edited"))
-        print("Created the eo_bmf_files_edited folder")
+        os.mkdir(EDITED_IRS_EO_BMF_DIR)
+        print(f"Created {EDITED_IRS_EO_BMF_DIR.upper()} directory")
 
 
-    # Testing if index_files_edited folder exists
-    if os.path.exists(os.path.join(DATA_DIR, "index_files_edited")):
-        print("The index_files_edited folder already exists, moving forward")
+    # Testing if edited_index_files folder exists
+    if os.path.exists(EDITED_IRS_INDEX_DIR):
+        print(f"{EDITED_IRS_INDEX_DIR.upper()} directory already exists")
     else:
         # If the folder doesnt exists, creating one
-        os.mkdir(os.path.join(DATA_DIR, "index_files_edited"))
-        print("Created the index_files_edited folder")
+        os.mkdir(EDITED_IRS_INDEX_DIR)
+        print(f"Created {EDITED_IRS_INDEX_DIR.upper()} directory")
+
+
+    # Testing if edited_990_files folder exists
+    if os.path.exists(EDITED_IRS_990_DIR):
+        print(f"{EDITED_IRS_990_DIR.upper()} directory already exists")
+    else:
+        os.mkdir(EDITED_IRS_990_DIR)
+        print(f"Created {EDITED_IRS_990_DIR} directory")
 
 
 # 2. Creating a function to process EO BMF files for KS and MO
 def transform_irs_eo_bmf():
     '''
-    This function extracts organization data specified in the IRS EO BMF.
+    Action: This function transforms data specified in the eo_bmf_files directory and loads it into eo_bmf_files_edited directory.
     
-    The main purpose of the function is to traverse the directory where EO BMF files live to
-    then extract and reshape organizational data that will later be loaded into the database.
+    Description: The main purpose of the function is to traverse the directory where raw KS and MO EO BMF files reside to then, 
+    combine and reshape data into a signle file and load it into another directory. 
 
-    IMPORTANT: Currently, the function only extract KS and MO files but later functionality can be added.
-    
-    Column names being extracted from EO BMF are:
-
-    EIN, NAME, STREET, CITY, STATE, ZIP, GROUP, SUBSECTION, AFFILIATION,
-    CLASSIFICATION, RULING, DEDUCTIBILITY, FOUNDATION, ACTIVITY, ORGANIZATION,
-    STATUS, ASSET_CD, INCOME_CD, FILING_REQ_CD, PF_FILING_REQ_CD, ACCT_PD, NTEE_CD
+    Important: Currently, the function only extract KS and MO files but later functionality can be added.
     '''
 
 
@@ -75,14 +97,19 @@ def transform_irs_eo_bmf():
 
 
     # importing KS and MO EO BMF for further wrangling
-    eo_ks = pandas.read_csv(filepath_or_buffer=os.path.join(IRS_EO_BMF, "ks_eo_bmf.csv"), usecols=column_names, dtype=data_types)
-    eo_mo = pandas.read_csv(filepath_or_buffer=os.path.join(IRS_EO_BMF, "mo_eo_bmf.csv"), usecols=column_names, dtype=data_types)
+    eo_ks = pandas.read_csv(filepath_or_buffer=os.path.join(IRS_EO_BMF_DIR, "ks_eo_bmf.csv"), usecols=column_names, dtype=data_types)
+    print("Imported and reshaped original KS_EO_BMF.CSV data")
+
+    eo_mo = pandas.read_csv(filepath_or_buffer=os.path.join(IRS_EO_BMF_DIR, "mo_eo_bmf.csv"), usecols=column_names, dtype=data_types)
+    print("Imported and reshaped original MO_EO_BMF.CSV data")
 
 
     # combining KS and MO datasets
     df_eo_bmf = pandas.concat([eo_ks, eo_mo], ignore_index=True)
-    df_eo_bmf.to_csv(os.path.join(IRS_EO_BMF_EDITED, "df_eo_bmf.csv"), na_rep="NA", index=False)
+    print("Combined KS_EO_BMF.CSV and MO_EO_BMF.CSV into DF_EO_BMF.CSV")
 
+    df_eo_bmf.to_csv(os.path.join(EDITED_IRS_EO_BMF_DIR, "df_eo_bmf.csv"), na_rep="NA", index=False)
+    print(f"Saved file DF_EO_BMF.CSV to {EDITED_IRS_EO_BMF_DIR} directory")
     
     return df_eo_bmf
 
@@ -90,16 +117,20 @@ def transform_irs_eo_bmf():
 # 3. Creating a function to process IRS 990 index files
 def transform_irs_index(eo_bmf_data):
     '''
-    This function extracts index data specified in the IRS Form 990 series download.
+    Action: This function takes the combined EO BMF data for KS and MO, extracts their EINs, and then filters files 
+    within the index_files directory to include data only on needed EINs. 
 
-    The main purpose of the function is to iterate over 990 index files to match organizational EIN with
-    OBJECT_ID that represents the name of an XML file. Finding the BATCH_ID per organization improves memory
-    and prevents expensive operations opening and searching XML files. 
+    Description: The main purpose of the function is to iterate over the IRS 990 index files, match KS/MO selected EINs within 
+    these files and create a DataFrame that references each EIN's location and unique number within the IRS 990 Index files. 
+
+    This is a crucial step because the IRS 990 Index files are compressed. To extract XML data from compressed files, references 
+    between EIN's, XML_BATCH_ID, and OBJECT_ID need to be established, which this function accomplishes.
     '''
 
 
     # pulling a list of ks and mo ein organizations
     ein_list = list(eo_bmf_data["EIN"].array)
+    print("Extracted list of EINs from DF_EO_BMF.CSV")
 
     # defining column names to enforce df structure at the end of the func
     col_names = ["RETURN_ID", "FILING_TYPE", "EIN", "SUB_DATE", "TAXPAYER_NAME", "RETURN_TYPE", "OBJECT_ID", "XML_BATCH_ID"]
@@ -109,36 +140,62 @@ def transform_irs_index(eo_bmf_data):
 
 
     # traversing directory with index files
-    for i in os.listdir(IRS_INDEX):
+    for i in os.listdir(IRS_INDEX_DIR):
         # reading each csv file in a dir as a df
-        read_df = pandas.read_csv(os.path.join(IRS_INDEX, i), sep=",", dtype=str)
-
+        read_df = pandas.read_csv(os.path.join(IRS_INDEX_DIR, i), sep=",", dtype=str)
+        print(f"Opened file named: {i.upper()}")
 
         # not all columns across years are the same so they need to be adjusted
+        print(f"Examining columns structure of the file: {i.upper()}")
         for col in col_names:
             if col not in read_df.columns:
                 read_df[col] = "NA"
-
+                print(f"File named: {i.upper()} was missing a column named: {col.upper()}")
+   
+        print(f"Column structure of file named: {i.upper()} is good")
+                
 
         # fileting dfs and add to the list of dfs
         df_list.append(read_df[read_df["EIN"].isin(ein_list)])
+        print(f"Filtering data to only specified EINs")
         
 
     # concating dfs
     df_index = pandas.concat(df_list, axis=0, join="inner", ignore_index=True)
-    df_index.to_csv(os.path.join(IRS_INDEX_EDITED, "df_index.csv"), na_rep="NA", index=False)
+    df_index.to_csv(os.path.join(EDITED_IRS_INDEX_DIR, "df_index.csv"), na_rep="NA", index=False)
+    print("Saving filtered and combined master data file named DF_INDEX.CSV")
 
     # splitting data into return types since different return types will require different db schema
     uniq_return_type = df_index["RETURN_TYPE"].unique()
 
     for ret_type in uniq_return_type:
         filtered_df_index = df_index[df_index["RETURN_TYPE"] == ret_type]
-        filtered_df_index.to_csv(os.path.join(IRS_INDEX_EDITED, f"df_index_{ret_type}.csv"), na_rep="NA", index=False)
+        filtered_df_index.to_csv(os.path.join(EDITED_IRS_INDEX_DIR, f"df_index_{ret_type}.csv"), na_rep="NA", index=False)
+        print(f"Saving {str(ret_type).upper()} as a separate file named DF_INDEX_{str(ret_type).upper()}.CSV")
+
+    return df_index
+
+
+# 4. Creating a function to extract IRS 990 XML files from zipped files
+def unzipping_990_files():
+    '''
+    Action: Accessing compressed IRS 990 files at ORIGINAL_990_FILES directory and unzipping them into EDITED_990_FILES directory.
+    
+    Description: This function takes compressed IRS 990 files and extracts them into another directory. Originally, these XML files
+    were going to be accessed directly within compressed files. However, there are issues with compression that IRS enforces on these
+    files. Additionally, further exploration showed that compressed files have a compression type of 0, which isnt useful for processing.
+    '''
+
+    
+
+
+
+
 
 
 if __name__ == "__main__":
     dir_setup_edited()
-    df_eo_bmf = transform_irs_eo_bmf()
-    transform_irs_index(eo_bmf_data=df_eo_bmf)
+    data_1 = transform_irs_eo_bmf()
+    data_2 = transform_irs_index(data_1)
 
 
