@@ -3,8 +3,9 @@
 import os
 import pandas
 import os.path
+import shutil
 import datetime
-import zipfile
+import zipfile_deflate64 as zipfile
 
 
 # 0.0 Setting working directory paths
@@ -97,7 +98,42 @@ def unzipping_990_files():
         print(f"Extracted members out of zipped {i_member.name.upper()}")
 
 
-# 3. Creating a function to process EO BMF files for KS and MO
+# 3. 
+def flatten_nested_990_files():
+    '''
+    Action: Access extracted IRS 990 files and flatten them within their respective folders.
+
+    Description: This functions flattens extracted IRS 990 files. This is needed because IRS sometimes nests compressed files. To prevent this
+    from happening after extraction, this function steps in. 
+    '''
+
+    # traversing each extracted folder (one per original zip file)
+    for i_extracted in os.scandir(EDITED_IRS_990_DIR):
+
+        if not i_extracted.is_dir():
+            continue
+
+        # list what's directly inside this extracted folder
+        contents = list(os.scandir(i_extracted.path))
+
+        # nested case: exactly one entry, and it's a directory
+        if len(contents) == 1 and contents[0].is_dir():
+            nested_dir = contents[0]
+            print(f"Nested folder detected in {i_extracted.name.upper()}: {nested_dir.name.upper()}")
+
+            # move every item out of the nested folder, up into the parent
+            for item in os.scandir(nested_dir.path):
+                shutil.move(item.path, i_extracted.path)
+
+            # remove the now-empty nested folder
+            os.rmdir(nested_dir.path)
+            print(f"Flattened {i_extracted.name}")
+
+        else:
+            print(f"No nesting detected in {i_extracted.name.upper()}")
+
+
+# 4. Creating a function to process EO BMF files for KS and MO
 def transform_irs_eo_bmf():
     '''
     Action: This function transforms data specified in the eo_bmf_files directory and loads it into eo_bmf_files_edited directory.
@@ -139,7 +175,7 @@ def transform_irs_eo_bmf():
     return df_eo_bmf
 
 
-# 4. Creating a function to process IRS 990 index files
+# 5. Creating a function to process IRS 990 index files
 def transform_irs_index(eo_bmf_data):
     '''
     Action: This function takes the combined EO BMF data for KS and MO, extracts their EINs, and then filters files 
@@ -205,6 +241,7 @@ def transform_irs_index(eo_bmf_data):
 if __name__ == "__main__":
     dir_setup_edited()
     unzipping_990_files()
+    flatten_nested_990_files()
     data_1 = transform_irs_eo_bmf()
     data_2 = transform_irs_index(data_1)
 
