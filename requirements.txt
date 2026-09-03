@@ -12,9 +12,11 @@ pandas==2.2.3
 
 # Database
 psycopg2-binary==2.9.10
+sqlalchemy==1.4.36
 
 # Data quality
 great-expectations==0.18.21
 
 # Utilities
 python-dotenv==1.0.1
+zipfile-deflate64==0.2.0

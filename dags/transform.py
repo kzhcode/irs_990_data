@@ -74,7 +74,7 @@ def dir_setup_edited():
 
 
 # 2. Creating a function to extract IRS 990 XML files from zipped files
-def unzipping_990_files():
+def unzip_990_files():
     '''
     Action: Accessing compressed IRS 990 files at ORIGINAL_990_FILES directory and unzipping them into EDITED_990_FILES directory.
     
@@ -136,7 +136,8 @@ def flatten_nested_990_files():
 # 4. Creating a function to process EO BMF files for KS and MO
 def transform_irs_eo_bmf():
     '''
-    Action: This function transforms data specified in the eo_bmf_files directory and loads it into eo_bmf_files_edited directory.
+    Action: This function transforms data specified in the eo_bmf_files directory, filters it by zip and return type, 
+    and loads it into eo_bmf_files_edited directory.
     
     Description: The main purpose of the function is to traverse the directory where raw KS and MO EO BMF files reside to then, 
     combine and reshape data into a signle file and load it into another directory. 
@@ -156,6 +157,14 @@ def transform_irs_eo_bmf():
                   "FOUNDATION": int, "ACTIVITY": str, "ORGANIZATION": int, "STATUS": str, "ASSET_CD": int, "INCOME_CD": int,
                   "FILING_REQ_CD": str, "PF_FILING_REQ_CD": int, "ACCT_PD": str, "NTEE_CD": str}
 
+    # specifying zip codes to filter by: Downtown, Midtown, East, south, Swope, Northland, Wyandotte County, Overland Park, Olathe, Independence, Lee's Summit 
+    zip_codes = ["64101", "64105", "64106", "64108", "64109", "64110", "64111", "64112", "64130", '64131', "64132", "64133", "64134",
+                 "64136", "64137", "64138", "64150", "64151", '64152', "64153", "64154", "64155", "64156", "64157", "64158", "64161",
+                 "64163", "64164", "64167", "66101", "66102", "66103", "66104", "66105", "66106", "66109", "66110", "66111", "66112",
+                 "66115", "66117", "66118", "66119", "66160", "66204", "66207", "66210", "66212", "66213", "66221", "66223", "66224",
+                 "66061", "66062", "64050", "64052", "64053", '64054', "64055", "64056", "64057", "64063", "64064", "64081", "64082", 
+                 "64086"]
+
 
     # importing KS and MO EO BMF for further wrangling
     eo_ks = pandas.read_csv(filepath_or_buffer=os.path.join(IRS_EO_BMF_DIR, "ks_eo_bmf.csv"), usecols=column_names, dtype=data_types)
@@ -169,6 +178,13 @@ def transform_irs_eo_bmf():
     df_eo_bmf = pandas.concat([eo_ks, eo_mo], ignore_index=True)
     print("Combined KS_EO_BMF.CSV and MO_EO_BMF.CSV into DF_EO_BMF.CSV")
 
+
+    # filtering KS and MO combined data by needed zip codes
+    df_eo_bmf["ZIP"] = df_eo_bmf["ZIP"].str.extract(r"(\d+)")
+    df_eo_bmf = df_eo_bmf[df_eo_bmf["ZIP"].isin(zip_codes)]
+
+
+    # saving data to the volume
     df_eo_bmf.to_csv(os.path.join(EDITED_IRS_EO_BMF_DIR, "df_eo_bmf.csv"), na_rep="NA", index=False)
     print(f"Saved file DF_EO_BMF.CSV to {EDITED_IRS_EO_BMF_DIR} directory")
     
@@ -196,6 +212,9 @@ def transform_irs_index(eo_bmf_data):
     # defining column names to enforce df structure at the end of the func
     col_names = ["RETURN_ID", "FILING_TYPE", "EIN", "SUB_DATE", "TAXPAYER_NAME", "RETURN_TYPE", "OBJECT_ID", "XML_BATCH_ID"]
 
+    # defining return type to filter by
+    return_types = ["990", "990EZ", "990PF"]
+
     # creating a list for ks and mo to store accumelated dfs
     df_list = list()
 
@@ -221,8 +240,12 @@ def transform_irs_index(eo_bmf_data):
         print(f"Filtering data to only specified EINs")
         
 
-    # concating dfs
+    # concating dfs from a list of dfs
     df_index = pandas.concat(df_list, axis=0, join="inner", ignore_index=True)
+
+    # filtering combined df by return type needed
+    df_index = df_index[df_index["RETURN_TYPE"].isin(return_types)]
+
     df_index.to_csv(os.path.join(EDITED_IRS_INDEX_DIR, "df_index.csv"), na_rep="NA", index=False)
     print("Saving filtered and combined master data file named DF_INDEX.CSV")
 
@@ -237,10 +260,9 @@ def transform_irs_index(eo_bmf_data):
     return df_index
 
 
-
 if __name__ == "__main__":
     dir_setup_edited()
-    unzipping_990_files()
+    unzip_990_files()
     flatten_nested_990_files()
     data_1 = transform_irs_eo_bmf()
     data_2 = transform_irs_index(data_1)
