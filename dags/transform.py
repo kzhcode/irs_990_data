@@ -21,24 +21,6 @@ IRS_990_DIR = os.path.join(ROOT_DATA_DIR, "ORIGINAL_990_FILES")
 EDITED_IRS_990_DIR = os.path.join(ROOT_DATA_DIR, "EDITED_990_FILES")
 
 
-# 0.1. Setting XML schema and variable paths within XML document
-NS = {"irs": "http://www.irs.gov/efile"}
-
-FIELD_XPATHS = {
-    "XML_EIN": "//irs:Filer/irs:EIN",  # renamed from "EIN" to avoid colliding with the index-sourced EIN
-    "BUSINESS_NAME": "//irs:BusinessName/irs:BusinessNameLine1Txt",
-    "ADDRESS_LINE": "//irs:USAddress/irs:AddressLine1Txt",
-    "CITY_NAME": "//irs:USAddress/irs:CityNm",
-    "STATE": "//irs:USAddress/irs:StateAbbreviationCd",
-    "ZIP": "//irs:USAddress/irs:ZIPCd",
-    "TOTAL_REVENUE": ".//irs:IRS990/irs:CYTotalRevenueAmt",
-    "TOTAL_EXPENSES": ".//irs:IRS990/irs:CYTotalExpensesAmt",
-    "TOTAL_ASSETS_EOY": ".//irs:IRS990/irs:TotalAssetsEOYAmt",
-    "TOTAL_LIABILITIES_EOY": ".//irs:IRS990/irs:TotalLiabilitiesEOYAmt",
-    "NET_ASSETS_EOY": ".//irs:IRS990/irs:NetAssetsOrFundBalancesEOYAmt",
-}
-
-
 # 1. Function to set up directories in a volume 
 def dir_setup_edited():
     '''
@@ -98,7 +80,7 @@ def unzip_990_files():
         print(f"Extracted members out of zipped {i_member.name.upper()}")
 
 
-# 3. 
+# 3. Creating a function to flatten extracted IRS files
 def flatten_nested_990_files():
     '''
     Action: Access extracted IRS 990 files and flatten them within their respective folders.
@@ -158,12 +140,19 @@ def transform_irs_eo_bmf():
                   "FILING_REQ_CD": str, "PF_FILING_REQ_CD": int, "ACCT_PD": str, "NTEE_CD": str}
 
     # specifying zip codes to filter by: Downtown, Midtown, East, south, Swope, Northland, Wyandotte County, Overland Park, Olathe, Independence, Lee's Summit 
-    zip_codes = ["64101", "64105", "64106", "64108", "64109", "64110", "64111", "64112", "64130", '64131', "64132", "64133", "64134",
-                 "64136", "64137", "64138", "64150", "64151", '64152', "64153", "64154", "64155", "64156", "64157", "64158", "64161",
-                 "64163", "64164", "64167", "66101", "66102", "66103", "66104", "66105", "66106", "66109", "66110", "66111", "66112",
-                 "66115", "66117", "66118", "66119", "66160", "66204", "66207", "66210", "66212", "66213", "66221", "66223", "66224",
-                 "66061", "66062", "64050", "64052", "64053", '64054', "64055", "64056", "64057", "64063", "64064", "64081", "64082", 
-                 "64086"]
+    zip_codes = ["64050", "64051", "64052", "64053", "64054", "64055", "64056", "64057", "64058", "64059", "64060", "64061", "64062", "64063", "64064",
+                 "64080", "64081", "64082", "64083", "64084", "64085", "64086",
+                 "64101", "64102", "64103", "64104", "64105", "64106", "64107", "64108", "64109", "64110", "64111", "64112", "64113", "64114", "64115",
+                 "64116", "64117", "64118", "64119", "64120", "64121", "64122", "64123", "64124", "64125", "64126", "64127", "64128", "64129", "64130",
+                 "64131", "64132", "64133", "64134", "64135", "64136", "64137", "64138", "64139", "64140", "64141", "64142", "64143", "64144", "64145",
+                 "64146", "64147", "64148", "64149", "64150", "64151", '64152', "64153", "64154", "64155", "64156", "64157", "64158", "64159", "64160",
+                 "64161", "64162", "64163", "64164", "64165", "64166", "64167", "64168", "64169", "64170", "64171", "64172", "64173", "64174", "64175",
+                 "64176", "64177", "64178", "64179", "64180", "64181", "64182", "64183", "64184", "64185", "64186", "64187", "64188", "64189", "64190",
+                 "64191", "64192", "64193", "64194", "64195", "64196", "64197", "64198", "64199",
+                 "66061", "66062", "66101", "66102", "66103", "66104", "66105", "66106", "66107", "66108", "66109", "66110", "66111", "66112", "66113",
+                 "66115", "66117", "66118", "66119", "66160", "66200", "66201", "66202", "66203", "66204", "66206", "66207", "66208", "66209", "66210",
+                 "66211", "66212", "66213", "66221", "66223", "66224"
+                 ]
 
 
     # importing KS and MO EO BMF for further wrangling
@@ -192,7 +181,7 @@ def transform_irs_eo_bmf():
 
 
 # 5. Creating a function to process IRS 990 index files
-def transform_irs_index(eo_bmf_data):
+def transform_irs_index(df_eo_bmf):
     '''
     Action: This function takes the combined EO BMF data for KS and MO, extracts their EINs, and then filters files 
     within the index_files directory to include data only on needed EINs. 
@@ -206,7 +195,7 @@ def transform_irs_index(eo_bmf_data):
 
 
     # pulling a list of ks and mo ein organizations
-    ein_list = list(eo_bmf_data["EIN"].array)
+    ein_list = list(df_eo_bmf["EIN"].array)
     print("Extracted list of EINs from DF_EO_BMF.CSV")
 
     # defining column names to enforce df structure at the end of the func

@@ -21,60 +21,107 @@ EDITED_IRS_990_DIR = os.path.join(ROOT_DATA_DIR, "EDITED_990_FILES")
 EDITED_IRS_INDEX_DIR = os.path.join(ROOT_DATA_DIR, "EDITED_INDEX_FILES")
 
 
-# 4. Creating a function to process EO BMF files for KS and MO
-def transform_irs_eo_bmf():
-    '''
-    Action: This function transforms data specified in the eo_bmf_files directory, filters it by zip and return type, 
-    and loads it into eo_bmf_files_edited directory.
-    
-    Description: The main purpose of the function is to traverse the directory where raw KS and MO EO BMF files reside to then, 
-    combine and reshape data into a signle file and load it into another directory. 
+data = pandas.read_csv(f"{EDITED_IRS_INDEX_DIR}/df_index.csv")
 
-    Important: Currently, the function only extract KS and MO files but later functionality can be added.
+
+# 6. This function cleans up IRS index data and creates XML_BATCH_ID refenrece
+def process_irs_index(df_index):
+    '''
+    Action: This function takes IRS index files with filtered data, cleans it and separates it into two groups. First 
+    group focuses on records with XML_BATCH_ID and second group focuses on records without XML_BATCH_ID. 
     '''
 
+    # filtering only columns needed for further processing
+    df_index = df_index[["EIN", "SUB_DATE", "RETURN_TYPE", "OBJECT_ID", "XML_BATCH_ID"]]
 
-    # reducing datasets only to needed columns for later database import
-    column_names = ["EIN", "NAME", "STREET", "CITY", "STATE", "ZIP", "GROUP", "SUBSECTION", "AFFILIATION",
-        "CLASSIFICATION", "RULING", "DEDUCTIBILITY", "FOUNDATION", "ACTIVITY", "ORGANIZATION", "STATUS", 
-        "ASSET_CD", "INCOME_CD", "FILING_REQ_CD", "PF_FILING_REQ_CD", "ACCT_PD", "NTEE_CD"]
+    # separating SUB_DATE into 4 digit date and complex string date for parsing
+    df_index_dt_good = df_index[df_index["SUB_DATE"].str.contains(r"^\d{4}", na=False)].copy()
+    df_index_dt_bad = df_index[~df_index["SUB_DATE"].str.contains(r"^\d{4}", na=False)].copy()
 
-    # creating a dict to have more control over assigning data types when importg KS and MO EO BMF data
-    data_types = {"EIN": str, "NAME": str, "STREET": str, "CITY": str, "STATE": str, "ZIP": str, "GROUP": str,
-                  "SUBSECTION": str, "AFFILIATION": int, "CLASSIFICATION": str, "RULING": str, "DEDUCTIBILITY": int,
-                  "FOUNDATION": int, "ACTIVITY": str, "ORGANIZATION": int, "STATUS": str, "ASSET_CD": int, "INCOME_CD": int,
-                  "FILING_REQ_CD": str, "PF_FILING_REQ_CD": int, "ACCT_PD": str, "NTEE_CD": str}
+    # columns with string date need parsing and selecting 
+    df_index_dt_bad["SUB_DATE"] = pandas.to_datetime(df_index_dt_bad["SUB_DATE"], format="%m/%d/%Y %I:%M:%S %p")
+    df_index_dt_bad["SUB_DATE"] = df_index_dt_bad["SUB_DATE"].dt.year.astype(str)
 
-    # specifying zip codes to filter by: Downtown, Midtown, East, south, Swope, Northland, Wyandotte County, Overland Park, Olathe, Independence, Lee's Summit 
-    zip_codes = ["64101", "64105", "64106", "64108", "64109", "64110", "64111", "64112", "64130", '64131', "64132", "64133", "64134",
-                 "64136", "64137", "64138", "64150", "64151", '64152', "64153", "64154", "64155", "64156", "64157", "64158", "64161",
-                 "64163", "64164", "64167", "66101", "66102", "66103", "66104", "66105", "66106", "66109", "66110", "66111", "66112",
-                 "66115", "66117", "66118", "66119", "66160", "66204", "66207", "66210", "66212", "66213", "66221", "66223", "66224",
-                 "66061", "66062", "64050", "64052", "64053", '64054', "64055", "64056", "64057", "64063", "64064", "64081", "64082", 
-                 "64086"]
+    # combining two datasets together
+    df_index = pandas.concat([df_index_dt_good, df_index_dt_bad])
+
+    # separating data with known XML_BATCH_ID and without
+    df_index_na = df_index[df_index["XML_BATCH_ID"].isna()]
+    df_index_not_na = df_index[~df_index["XML_BATCH_ID"].isna()]
 
 
-    # importing KS and MO EO BMF for further wrangling
-    eo_ks = pandas.read_csv(filepath_or_buffer=os.path.join(IRS_EO_BMF_DIR, "ks_eo_bmf.csv"), usecols=column_names, dtype=data_types)
-    print("Imported and reshaped original KS_EO_BMF.CSV data")
+    return df_index_not_na, df_index_na
 
-    eo_mo = pandas.read_csv(filepath_or_buffer=os.path.join(IRS_EO_BMF_DIR, "mo_eo_bmf.csv"), usecols=column_names, dtype=data_types)
-    print("Imported and reshaped original MO_EO_BMF.CSV data")
+df_index_not_na, df_index_na = process_irs_index(data)
 
-
-    # combining KS and MO datasets
-    df_eo_bmf = pandas.concat([eo_ks, eo_mo], ignore_index=True)
-    print("Combined KS_EO_BMF.CSV and MO_EO_BMF.CSV into DF_EO_BMF.CSV")
+# 7. This function defines how to extract XML fields related to organization itself
+def extract_org_fields(xml_root, xml_fields: dict, ns: dict):
+    '''
+    Action: This function defines how to extract XML fields related to organization itself and accepts names of these XML fields. 
+    '''
 
 
-    # filtering KS and MO combined data by needed zip codes
-    df_eo_bmf["ZIP"] = df_eo_bmf["ZIP"].str.extract(r"(\d+)")
-    df_eo_bmf = df_eo_bmf[df_eo_bmf["ZIP"].isin(zip_codes)]
+    # defining a dict to collect records
+    record_collector: dict = {}
+
+    # iterating over fields and adding them to records
+    for field_name, xpath_name in xml_fields.items():
+        found_record = xml_root.xpath(xpath_name, namespaces=ns)
+        if found_record:
+            record_collector[field_name] = found_record[0]
+        else:
+            record_collector[field_name] = None
 
 
-    # saving data to the volume
-    df_eo_bmf.to_csv(os.path.join(EDITED_IRS_EO_BMF_DIR, "df_eo_bmf.csv"), na_rep="NA", index=False)
-    print(f"Saved file DF_EO_BMF.CSV to {EDITED_IRS_EO_BMF_DIR} directory")
+    return record_collector
+
+
+# 8. This function defines how to extract XML fields related to officers
+def extract_officer_fields(xml_root, officer_field, xml_fields: dict, ns: dict):
+    '''
+    Action: This function defines how to extract XML field related to officers and accept names of these XML fields.
+    '''
+
+
+    # defining a dict collect records and officer records
+    officer_records: list = []
+
+    # defining xpath to officer elements
+    org_ein = xml_root.xpath("//irs:ReturnHeader/irs:Filer/irs:EIN", namespaces=ns)
+    officer_elements = xml_root.xpath(officer_field, namespaces=ns)
+
+    # iterating over officer fields
+    for officer_element in officer_elements:
+
+        # defining a record collector for each officer
+        record_collector: dict = {}
+
+        # adding org ein to each record
+        if org_ein:
+            record_collector["OrgEIN"] = org_ein[0]
+        else:
+            record_collector["OrgEIN"] = None
+
+        # iterating over officer fields
+        for field_name, xpath_name in xml_fields.items():
+            found_record = officer_element.xpath(xpath_name, namespaces=ns)
+            if found_record:
+                record_collector[field_name] = found_record[0]
+            else:
+                record_collector[field_name] = None
+
+        # adding to officer records list
+        officer_records.append(record_collector)
+
+
+    return officer_records
+
+
+
+
+
     
-    return df_eo_bmf
+
+
+
 
