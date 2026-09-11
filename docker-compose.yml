@@ -4,7 +4,7 @@
 volumes:
   postgres_data:
   airflow_logs:
-  irs990_data:
+  directories:
 
 
 # Shared configuration
@@ -17,7 +17,7 @@ x-airflow-common: &airflow-common
   volumes:
    - ./dags:/opt/airflow/dags
    - airflow_logs:/opt/airflow/logs
-   - irs990_data:/opt/airflow/data
+   - directories:/opt/airflow/data
   depends_on:
    postgres:
     condition: service_healthy
