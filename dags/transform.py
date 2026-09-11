@@ -1,11 +1,13 @@
 
 # importing libraries
 import os
-import pandas
 import os.path
+import glob
 import shutil
-import datetime
+import pandas
+from lxml import etree
 import zipfile_deflate64 as zipfile
+from xml_paths import NS, FIELD_990_ORG_XPATHS, FIELD_990EZ_ORG_XPATHS, FIELD_990PF_ORG_XPATHS, OFFICER_990_XPATHS, OFFICER_990EZ_XPATHS
 
 
 # 0.0 Setting working directory paths
@@ -19,6 +21,8 @@ EDITED_IRS_INDEX_DIR = os.path.join(ROOT_DATA_DIR, "EDITED_INDEX_FILES")
 
 IRS_990_DIR = os.path.join(ROOT_DATA_DIR, "ORIGINAL_990_FILES")
 EDITED_IRS_990_DIR = os.path.join(ROOT_DATA_DIR, "EDITED_990_FILES")
+
+EXTRACTED_XML_DATA = os.path.join(ROOT_DATA_DIR, "EXTRACTED_XML_DATA")
 
 
 # 1. Function to set up directories in a volume 
@@ -53,6 +57,14 @@ def dir_setup_edited():
     else:
         os.mkdir(EDITED_IRS_990_DIR)
         print(f"Created {EDITED_IRS_990_DIR} directory")
+
+
+    # Testing if extracted_xml_data folder exists
+    if os.path.exists(EXTRACTED_XML_DATA):
+        print(f"{EXTRACTED_XML_DATA.upper()} directory already exists")
+    else:
+        os.mkdir(EXTRACTED_XML_DATA)
+        print(f"Created {EXTRACTED_XML_DATA.upper()} directory")
 
 
 # 2. Creating a function to extract IRS 990 XML files from zipped files
@@ -151,8 +163,7 @@ def transform_irs_eo_bmf():
                  "64191", "64192", "64193", "64194", "64195", "64196", "64197", "64198", "64199",
                  "66061", "66062", "66101", "66102", "66103", "66104", "66105", "66106", "66107", "66108", "66109", "66110", "66111", "66112", "66113",
                  "66115", "66117", "66118", "66119", "66160", "66200", "66201", "66202", "66203", "66204", "66206", "66207", "66208", "66209", "66210",
-                 "66211", "66212", "66213", "66221", "66223", "66224"
-                 ]
+                 "66211", "66212", "66213", "66221", "66223", "66224"]
 
 
     # importing KS and MO EO BMF for further wrangling
@@ -249,11 +260,329 @@ def transform_irs_index(df_eo_bmf):
     return df_index
 
 
+# 6. This function cleans up IRS index data and creates XML_BATCH_ID refenrece
+def process_irs_index(df_index):
+    '''
+    Action: This function takes IRS index files with filtered data, cleans it and separates it into two groups. First 
+    group focuses on records with XML_BATCH_ID and second group focuses on records without XML_BATCH_ID. 
+    '''
+
+    # filtering only columns needed for further processing
+    df_index = df_index[["EIN", "SUB_DATE", "RETURN_TYPE", "OBJECT_ID", "XML_BATCH_ID"]]
+
+    # separating SUB_DATE into 4 digit date and complex string date for parsing
+    df_index_dt_good = df_index[df_index["SUB_DATE"].str.contains(r"^\d{4}", na=False)].copy()
+    df_index_dt_bad = df_index[~df_index["SUB_DATE"].str.contains(r"^\d{4}", na=False)].copy()
+
+    # columns with string date need parsing and selecting 
+    df_index_dt_bad["SUB_DATE"] = pandas.to_datetime(df_index_dt_bad["SUB_DATE"], format="%m/%d/%Y %I:%M:%S %p")
+    df_index_dt_bad["SUB_DATE"] = df_index_dt_bad["SUB_DATE"].dt.year.astype(str)
+
+    # combining two datasets together
+    df_index = pandas.concat([df_index_dt_good, df_index_dt_bad])
+
+    # separating data with known XML_BATCH_ID and without
+    missing_batch_id = df_index["XML_BATCH_ID"].isna() | (df_index["XML_BATCH_ID"] == "NA")
+
+    df_index_na = df_index[missing_batch_id]
+    df_index_not_na = df_index[~missing_batch_id]
+
+    df_index_na.to_csv(os.path.join(EDITED_IRS_INDEX_DIR, "df_index_na.csv"), na_rep="NA", index=False)
+    df_index_not_na.to_csv(os.path.join(EDITED_IRS_INDEX_DIR, "df_index_not_na.csv"), na_rep="NA", index=False)
+
+
+    return df_index_not_na, df_index_na
+
+
+# 7. This function defines how to extract XML fields related to organization itself
+def extract_org_fields(xml_root, xml_fields: dict, ns: dict):
+    '''
+    Action: This function defines how to extract XML fields related to organization itself and accepts names of these XML fields. 
+    '''
+
+
+    # defining a dict to collect records
+    record_collector: dict = {}
+
+    # iterating over fields and adding them to records
+    for field_name, xpath_name in xml_fields.items():
+        found_record = xml_root.xpath(xpath_name, namespaces=ns)
+        if found_record:
+            record_collector[field_name] = found_record[0].text
+        else:
+            record_collector[field_name] = None
+
+    return record_collector
+
+
+# 8. This function defines how to extract XML fields related to officers
+def extract_officer_fields(xml_root, officer_field, xml_fields: dict, ns: dict):
+    '''
+    Action: This function defines how to extract XML field related to officers and accept names of these XML fields.
+    '''
+
+
+    # defining a dict collect records and officer records
+    officer_records: list = []
+
+    # defining xpath to officer elements
+    org_ein = xml_root.xpath("//irs:ReturnHeader/irs:Filer/irs:EIN", namespaces=ns)
+    tax_yr = xml_root.xpath("//irs:ReturnHeader/irs:TaxYr", namespaces=ns)
+    officer_elements = xml_root.xpath(officer_field, namespaces=ns)
+
+    # iterating over officer fields
+    for officer_element in officer_elements:
+
+        # defining a record collector for each officer
+        record_collector: dict = {}
+
+        # adding org ein to each record
+        if org_ein:
+            record_collector["OrgEIN"] = org_ein[0].text
+            record_collector["TaxYr"] = tax_yr[0].text
+        else:
+            record_collector["OrgEIN"] = None
+            record_collector["TaxYr"] = None
+
+        # iterating over officer fields
+        for field_name, xpath_name in xml_fields.items():
+            found_record = officer_element.xpath(xpath_name, namespaces=ns)
+            if found_record:
+                record_collector[field_name] = found_record[0].text
+            else:
+                record_collector[field_name] = None
+
+        # adding to officer records list
+        officer_records.append(record_collector)
+
+    return officer_records
+
+
+# 9. This function extract records from XML documents with a known XML_BATCH_ID
+def extract_xml_rec_with_id(df_index_not_na: pandas.DataFrame, ns: dict):
+    '''
+    Action: This function takes a known XML_BATCH_ID, finds needed XML record and extracts data based on defined parameters.
+    '''
+
+    # list of recors
+    org_records_with_id: list = []
+    officer_records_with_id: list = []
+
+    # grouping folders and accessing xml records
+    for xml_batch_id, group in df_index_not_na.groupby("XML_BATCH_ID"):
+
+        # creating a path to each XML folder
+        batch_folder = os.path.join(EDITED_IRS_990_DIR, xml_batch_id)
+
+        # iterating over over each record
+        for i_row in group.itertuples():
+
+            # extracting ein and object_id
+            ein, object_id, return_type = i_row.EIN, i_row.OBJECT_ID, i_row.RETURN_TYPE
+
+            # creating full XML file path
+            file_path = os.path.join(batch_folder, f"{object_id}_public.xml")
+
+            if os.path.exists(file_path):
+                print(f"File {file_path} exists")
+
+                # parsing XML with error capabilities
+                try:
+                    xml_data = etree.parse(file_path)
+                    xml_root = xml_data.getroot()
+
+                except (etree.XMLSyntaxError, OSError) as err:
+                    print(f"Could not parse {file_path} for {ein}: {err}")
+                    continue
+
+                # establishing empty list for officer_record
+                officer_record: list = []
+                
+                if return_type == "990":
+                    record = extract_org_fields(xml_root=xml_root, xml_fields=FIELD_990_ORG_XPATHS, ns=NS)
+                    officer_field = "//irs:ReturnData/irs:IRS990/irs:Form990PartVIISectionAGrp"
+                    officer_record = extract_officer_fields(xml_root=xml_root, officer_field=officer_field, xml_fields=OFFICER_990_XPATHS, ns=NS)
+
+                elif return_type == "990EZ":
+                    record = extract_org_fields(xml_root=xml_root, xml_fields=FIELD_990EZ_ORG_XPATHS, ns=NS)
+                    officer_field = "//irs:ReturnData/irs:IRS990EZ/irs:OfficerDirectorTrusteeEmplGrp"
+                    officer_record = extract_officer_fields(xml_root=xml_root, officer_field=officer_field, xml_fields=OFFICER_990EZ_XPATHS, ns=NS)
+
+                elif return_type == "990PF":
+                    record = extract_org_fields(xml_root=xml_root, xml_fields=FIELD_990PF_ORG_XPATHS, ns=NS)
+                    # no paths for officers defined in 990PF organizations
+
+                else:
+                    print(f"Unknown or missing ReturnTypeCd for {ein} in {file_path}")
+                    continue
+
+                # creating records for orgs
+                record["RefEIN"] = ein
+                record["ObjectId"] = object_id
+                record["ReturnType"] = return_type
+                org_records_with_id.append(record)
+
+                # creating records for officers
+                for i_officer in officer_record:
+                    i_officer["OrgEIN"] = ein
+                    i_officer["ObjectId"] = object_id
+                    officer_records_with_id.append(i_officer)
+
+
+            else:
+                print(f"File {file_path} does not exist")
+
+    return org_records_with_id, officer_records_with_id
+
+
+# 10. This function walks EDITED_IRS_990_DIR once and builds a lookup of OBJECT_ID to file path
+def build_object_id_lookup():
+    '''
+    Action: This function walks every folder inside EDITED_IRS_990_DIR once and builds a dict mapping
+    OBJECT_ID to its full file path, so rows can be located without relying on SUB_DATE or folder naming.
+    '''
+
+    object_id_lookup: dict = {}
+
+    # walking every folder and subfolder inside EDITED_IRS_990_DIR
+    for dirpath, dirnames, filenames in os.walk(EDITED_IRS_990_DIR):
+        for filename in filenames:
+
+            # only considering files matching the expected naming pattern
+            if filename.endswith("_public.xml"):
+                object_id = filename.removesuffix("_public.xml")
+                full_path = os.path.join(dirpath, filename)
+
+                if object_id in object_id_lookup:
+                    print(f"Duplicate OBJECT_ID {object_id} found at {full_path}, keeping first match: {object_id_lookup[object_id]}")
+                else:
+                    object_id_lookup[object_id] = full_path
+
+    print(f"Built lookup with {len(object_id_lookup)} files")
+
+    return object_id_lookup
+
+
+# 11. This function extracts records from XML documents with an unknown XML_BATCH_ID, using SUB_DATE to locate folders
+def extract_xml_rec_without_id(df_index_na: pandas.DataFrame, object_id_lookup: dict):
+    '''
+    Action: This function takes rows lacking XML_BATCH_ID, locates each file via a prebuilt OBJECT_ID lookup,
+    finds needed XML record and extracts data based on defined parameters.
+    '''
+
+    # list of records
+    org_records_without_id: list = []
+    officer_records_without_id: list = []
+
+    # iterating over each row directly, no SUB_DATE grouping needed
+    for i_row in df_index_na.itertuples():
+
+        # extracting ein, object_id, and return_type
+        ein, object_id, return_type = i_row.EIN, i_row.OBJECT_ID, i_row.RETURN_TYPE
+
+        # looking up the file path directly by OBJECT_ID
+        file_path = object_id_lookup.get(object_id)
+
+        if file_path:
+            print(f"File {file_path} exists")
+
+            # parsing XML with error capabilities
+            try:
+                xml_data = etree.parse(file_path)
+                xml_root = xml_data.getroot()
+
+            except (etree.XMLSyntaxError, OSError) as err:
+                print(f"Could not parse {file_path} for {ein}: {err}")
+                continue
+
+            # officer_record defaults to an empty list — 990PF has no officers
+            officer_record = []
+
+            if return_type == "990":
+                record = extract_org_fields(xml_root=xml_root, xml_fields=FIELD_990_ORG_XPATHS, ns=NS)
+                officer_field = "//irs:ReturnData/irs:IRS990/irs:Form990PartVIISectionAGrp"
+                officer_record = extract_officer_fields(xml_root=xml_root, officer_field=officer_field, xml_fields=OFFICER_990_XPATHS, ns=NS)
+
+            elif return_type == "990EZ":
+                record = extract_org_fields(xml_root=xml_root, xml_fields=FIELD_990EZ_ORG_XPATHS, ns=NS)
+                officer_field = "//irs:ReturnData/irs:IRS990EZ/irs:OfficerDirectorTrusteeEmplGrp"
+                officer_record = extract_officer_fields(xml_root=xml_root, officer_field=officer_field, xml_fields=OFFICER_990EZ_XPATHS, ns=NS)
+
+            elif return_type == "990PF":
+                record = extract_org_fields(xml_root=xml_root, xml_fields=FIELD_990PF_ORG_XPATHS, ns=NS)
+                # no officer XPaths defined for 990PF — officer_record stays an empty list
+
+            else:
+                print(f"Unknown or missing ReturnTypeCd for {ein} in {file_path}")
+                continue
+
+            # creating records for orgs
+            record["RefEIN"] = ein
+            record["ObjectId"] = object_id
+            record["ReturnType"] = return_type
+            org_records_without_id.append(record)
+
+            # creating records for officers — loop since officer_record can hold multiple people
+            for single_officer in officer_record:
+                single_officer["ObjectId"] = object_id
+                officer_records_without_id.append(single_officer)
+
+        else:
+            print(f"No file found for OBJECT_ID {object_id}")
+
+    return org_records_without_id, officer_records_without_id
+
+
+# 12. Combine extracted data
+def combine_extracted_data(org_records_with_id, officer_records_with_id, org_records_without_id, officer_records_without_id):
+    '''
+    Action: This function takes extracted org and officer records and combines them into their respective dataframes.
+    '''
+
+    # converting each list of dicts into a dataframe before concatenating
+    org_records_with_id = pandas.DataFrame(org_records_with_id)
+    officer_records_with_id = pandas.DataFrame(officer_records_with_id)
+    org_records_without_id = pandas.DataFrame(org_records_without_id)
+    officer_records_without_id = pandas.DataFrame(officer_records_without_id)
+
+    # combining org and officer records, keeping all columns from both sources
+    org_records = pandas.concat([org_records_with_id, org_records_without_id], axis=0, join="outer", ignore_index=True)
+    officer_records = pandas.concat([officer_records_with_id, officer_records_without_id], axis=0, join="outer", ignore_index=True)
+
+    org_records.to_csv(os.path.join(EXTRACTED_XML_DATA, "org_records.csv"), na_rep="NA", index=False)
+    officer_records.to_csv(os.path.join(EXTRACTED_XML_DATA, "officer_records.csv"), na_rep="NA", index=False)
+
+    return org_records, officer_records
+
+
+# 13. This function removes the unzipped XML files folder once extraction is complete
+def cleanup_edited_xml_dir():
+    '''
+    Action: This function deletes the EDITED_IRS_990_DIR folder and all its contents, since the underlying
+    zipped files are retained separately and this folder can be regenerated by re-unzipping if needed.
+    '''
+
+    if os.path.exists(EDITED_IRS_990_DIR):
+        try:
+            shutil.rmtree(EDITED_IRS_990_DIR)
+            print(f"Deleted folder: {EDITED_IRS_990_DIR.upper()}")
+        except PermissionError as err:
+            print(f"Could not fully delete {EDITED_IRS_990_DIR.upper()}: {err}")
+            raise
+    else:
+        print(f"Folder {EDITED_IRS_990_DIR.upper()} does not exist, nothing to clean up")
+
+
 if __name__ == "__main__":
     dir_setup_edited()
     unzip_990_files()
     flatten_nested_990_files()
-    data_1 = transform_irs_eo_bmf()
-    data_2 = transform_irs_index(data_1)
-
+    df_eo_bmf = transform_irs_eo_bmf()
+    df_index = transform_irs_index(df_eo_bmf)
+    df_index_not_na, df_index_na = process_irs_index(df_index)
+    object_id_lookup = build_object_id_lookup()
+    org_records_with_id, officer_records_with_id = extract_xml_rec_with_id(df_index_not_na, NS)
+    org_records_without_id, officer_records_without_id = extract_xml_rec_without_id(df_index_na, object_id_lookup)
+    org_records, officer_records = combine_extracted_data(org_records_with_id, officer_records_with_id, org_records_without_id, officer_records_without_id)
+    cleanup_edited_xml_dir()
 
