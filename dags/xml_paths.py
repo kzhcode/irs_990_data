@@ -107,8 +107,8 @@ FIELD_990EZ_ORG_XPATHS = {
     "Form990TotalAssetsEOYAmt": "//irs:ReturnData/irs:IRS990EZ/irs:Form990TotalAssetsGrp/irs:EOYAmt",
     "SumOfTotalLiabilitiesBOYAmt": "//irs:ReturnData/irs:IRS990EZ/irs:SumOfTotalLiabilitiesGrp/irs:BOYAmt",
     "SumOfTotalLiabilitiesEOYAmt": "//irs:ReturnData/irs:IRS990EZ/irs:SumOfTotalLiabilitiesGrp/irs:EOYAmt",
-    "NetAssetsOrFundBalancesBOYAmt": "//irs:ReturnData/irs:IRS990EZ/irs:NetAssetsOrFundBalancesGrp/irs:BOYAmt",
-    "NetAssetsOrFundBalancesEOYAmt": "//irs:ReturnData/irs:IRS990EZ/irs:NetAssetsOrFundBalancesGrp/irs:EOYAmt",
+    "NetAssetsOrFundBalancesGrpBOYAmt": "//irs:ReturnData/irs:IRS990EZ/irs:NetAssetsOrFundBalancesGrp/irs:BOYAmt",
+    "NetAssetsOrFundBalancesGrpEOYAmt": "//irs:ReturnData/irs:IRS990EZ/irs:NetAssetsOrFundBalancesGrp/irs:EOYAmt",
     "TotalProgSrvcExpensesAmt": "//irs:ReturnData/irs:IRS990EZ/irs:TotalProgramServiceExpensesAmt"
 }
 
