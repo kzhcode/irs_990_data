@@ -22,10 +22,11 @@ CREATE TABLE tb_organization (
 -- Create tb_officer_salary
 CREATE TABLE tb_officer_salary (
     OrgEin CHAR(9) REFERENCES tb_organization (OrgEin),
-    EmployeeId CHAR(14) GENERATED ALWAYS AS (lower(concat(substring(OrgEin from 6), substring(OfficerName for 3), substring(OfficerTitle for 3), TaxYr))) STORED,
+    EmployeeId CHAR(17) GENERATED ALWAYS AS (substring(OrgEin from 6) || substring(OfficerFirstName for 3) || substring(OfficerTitle for 3) || substring(OfficerLastName for 3) || TaxYr) STORED,
     ReturnType VARCHAR(5) CONSTRAINT sal_return_type_len_check CHECK (char_length(ReturnType) = 3 OR char_length(ReturnType) = 5),
     TaxYr CHAR(4) CONSTRAINT sal_tax_yr_len_check CHECK (char_length(TaxYr) = 4),
-    OfficerName VARCHAR(30),
+    OfficerFirstName VARCHAR(30),
+    OfficerLastName VARCHAR(30),
     OfficerTitle VARCHAR(30),
     OfficerAvgHrsPerWeekRt decimal,
     OfficerAvgHrsPerWkDevotedToPosRt decimal,
@@ -40,7 +41,7 @@ CREATE TABLE tb_officer_salary (
     isUpdated boolean DEFAULT FALSE,
     UpdateDate timestamp,
     UpdateBy CHAR(3),
-    PRIMARY KEY (OrgEin, OfficerName, TaxYr)
+    PRIMARY KEY (OrgEin, OfficerFirstName, OfficerLastName, TaxYr)
 );
 
 
