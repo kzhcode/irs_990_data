@@ -7,7 +7,7 @@ NS = {"irs": "http://www.irs.gov/efile"}
 FIELD_990_ORG_XPATHS = {
     "ReturnDate": "//irs:ReturnHeader/irs:ReturnTs",
     "ReturnType": "//irs:ReturnHeader/irs:PreparerFirmGrp/irs:ReturnTypeCd",
-    "OrgEIN": "//irs:ReturnHeader/irs:Filer/irs:EIN",
+    "OrgEin": "//irs:ReturnHeader/irs:Filer/irs:EIN",
     "OrgBusinessName": "//irs:ReturnHeader/irs:Filer/irs:BusinessName/irs:BusinessNameLine1Txt",
     "OrgPhoneNumber": "//irs:ReturnHeader/irs:Filer/irs:PhoneNum",
     "OrgStreet": "//irs:ReturnHeader/irs:Filer/irs:USAddress/irs:AddressLine1Txt",
@@ -77,7 +77,7 @@ OFFICER_990_XPATHS = {
 FIELD_990EZ_ORG_XPATHS = {
     "ReturnDate": "//irs:ReturnHeader/irs:ReturnTs",
     "ReturnType": "//irs:ReturnHeader/irs:PreparerFirmGrp/irs:ReturnTypeCd",
-    "OrgEIN": "//irs:ReturnHeader/irs:Filer/irs:EIN",
+    "OrgEin": "//irs:ReturnHeader/irs:Filer/irs:EIN",
     "OrgBusinessName": "//irs:ReturnHeader/irs:Filer/irs:BusinessName/irs:BusinessNameLine1Txt",
     "OrgPhoneNumber": "//irs:ReturnHeader/irs:Filer/irs:PhoneNum",
     "OrgStreet": "//irs:ReturnHeader/irs:Filer/irs:USAddress/irs:AddressLine1Txt",
@@ -128,7 +128,7 @@ OFFICER_990EZ_XPATHS = {
 FIELD_990PF_ORG_XPATHS = {
     "ReturnDate": "//irs:ReturnHeader/irs:ReturnTs",
     "ReturnType": "//irs:ReturnHeader/irs:ReturnTypeCd",
-    "OrgEIN": "//irs:ReturnHeader/irs:Filer/irs:EIN",
+    "OrgEin": "//irs:ReturnHeader/irs:Filer/irs:EIN",
     "OrgBusinessName": "//irs:ReturnHeader/irs:Filer/irs:BusinessName/irs:BusinessNameLine1Txt",
     "OrgPhoneNumber": "//irs:ReturnHeader/irs:Filer/irs:PhoneNum",
     "OrgStreet": "//irs:ReturnHeader/irs:Filer/irs:USAddress/irs:AddressLine1Txt",
