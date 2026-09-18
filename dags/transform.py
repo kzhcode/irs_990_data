@@ -338,10 +338,10 @@ def extract_officer_fields(xml_root, officer_field, xml_fields: dict, ns: dict):
 
         # adding org ein to each record
         if org_ein:
-            record_collector["OrgEIN"] = org_ein[0].text
+            record_collector["OrgEin"] = org_ein[0].text
             record_collector["TaxYr"] = tax_yr[0].text
         else:
-            record_collector["OrgEIN"] = None
+            record_collector["OrgEin"] = None
             record_collector["TaxYr"] = None
 
         # iterating over officer fields
@@ -417,14 +417,14 @@ def extract_xml_rec_with_id(df_index_not_na: pandas.DataFrame, ns: dict):
                     continue
 
                 # creating records for orgs
-                record["RefEIN"] = ein
+                record["RefEin"] = ein
                 record["ObjectId"] = object_id
                 record["ReturnType"] = return_type
                 org_records_with_id.append(record)
 
                 # creating records for officers
                 for i_officer in officer_record:
-                    i_officer["OrgEIN"] = ein
+                    i_officer["OrgEin"] = ein
                     i_officer["ObjectId"] = object_id
                     officer_records_with_id.append(i_officer)
 
@@ -517,7 +517,7 @@ def extract_xml_rec_without_id(df_index_na: pandas.DataFrame, object_id_lookup: 
                 continue
 
             # creating records for orgs
-            record["RefEIN"] = ein
+            record["RefEin"] = ein
             record["ObjectId"] = object_id
             record["ReturnType"] = return_type
             org_records_without_id.append(record)
